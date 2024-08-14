@@ -26,6 +26,8 @@ import org.aaa4j.radius.core.dictionary.Dictionary;
 import org.aaa4j.radius.core.dictionary.PacketDefinition;
 import org.aaa4j.radius.core.util.RandomProvider;
 import org.aaa4j.radius.core.util.SecureRandomProvider;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -38,12 +40,15 @@ import java.util.Arrays;
 import java.util.Deque;
 import java.util.List;
 import java.util.Objects;
+import java.util.Random;
 
 /**
  * Packet encoder and decoder. The packet codec uses a {@link Dictionary} to encode and decode packets and containing
  * attributes.
  */
 public final class PacketCodec {
+
+    private static final Logger log = LoggerFactory.getLogger(PacketCodec.class);
 
     private static final int MESSAGE_AUTHENTICATOR_TYPE = 80;
 
@@ -258,6 +263,14 @@ public final class PacketCodec {
         md5.update(bytes);
         md5.update(secret);
         byte[] responseAuthenticator = md5.digest();
+
+        /**
+         * Code just for testing, corrupting the responseAuthenticator
+         */
+//        Random random = new Random();
+//        byte[] corruptedBytes = new byte[4];
+//        random.nextBytes(corruptedBytes);
+//        System.arraycopy(corruptedBytes, 0, responseAuthenticator, 0, corruptedBytes.length);
 
         System.arraycopy(responseAuthenticator, 0, bytes, 4, 16);
 
@@ -545,10 +558,14 @@ public final class PacketCodec {
 
                 AttributeDefinition<?, ?> attributeDefinition = dictionary.getAttributeDefinition(nextType);
 
-                int numComplete = attributeDefinition.getAttributeCodec().decode(codecContext, attributeStack);
+                if (attributeDefinition != null) {
+                    int numComplete = attributeDefinition.getAttributeCodec().decode(codecContext, attributeStack);
 
-                for (int i = 0; i < numComplete; i++) {
-                    attributes.add(attributeStack.removeFirst());
+                    for (int i = 0; i < numComplete; i++) {
+                        attributes.add(attributeStack.removeFirst());
+                    }
+                } else {
+                    log.error("attributeDefinition is null for attribute: {}", nextAttribute.getType().last());
                 }
 
                 continue;

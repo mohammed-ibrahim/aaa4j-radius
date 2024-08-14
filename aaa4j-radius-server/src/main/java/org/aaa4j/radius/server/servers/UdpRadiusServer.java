@@ -16,6 +16,12 @@
 
 package org.aaa4j.radius.server.servers;
 
+import org.aaa4j.radius.core.attribute.Data;
+import org.aaa4j.radius.core.attribute.ExtendedAttribute;
+import org.aaa4j.radius.core.attribute.IntegerData;
+import org.aaa4j.radius.core.attribute.StandardAttribute;
+import org.aaa4j.radius.core.attribute.StringData;
+import org.aaa4j.radius.core.attribute.TextData;
 import org.aaa4j.radius.core.dictionary.Dictionary;
 import org.aaa4j.radius.core.dictionary.dictionaries.StandardDictionary;
 import org.aaa4j.radius.core.packet.Packet;
@@ -26,7 +32,10 @@ import org.aaa4j.radius.server.DuplicationStrategy;
 import org.aaa4j.radius.server.DuplicationStrategy.Result;
 import org.aaa4j.radius.server.RadiusServer;
 import org.aaa4j.radius.server.TimedDuplicationStrategy;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
@@ -34,12 +43,19 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.time.Duration;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /**
  * A RADIUS server using UDP as the underlying transport layer.
@@ -49,8 +65,11 @@ import java.util.concurrent.RejectedExecutionException;
  * </p>
  */
 public final class UdpRadiusServer implements RadiusServer {
-
+    private static final Logger log = LoggerFactory.getLogger(UdpRadiusServer.class);
     private static final int MAX_PACKET_SIZE = 4096;
+
+//    private static ExecutorService executorService = Executors.newCachedThreadPool();
+    private static ScheduledExecutorService scheduledExecutorService = Executors.newScheduledThreadPool(300);
 
     private static final DuplicationStrategy DEFAULT_DUPLICATION_STRATEGY =
             new TimedDuplicationStrategy(Duration.ofSeconds(30));
@@ -249,26 +268,32 @@ public final class UdpRadiusServer implements RadiusServer {
         }
 
         private void runHandler(InetSocketAddress clientAddress, ByteBuffer inByteBuffer) throws Exception {
+            log.debug("Starting with run handler");
             byte[] secret = udpRadiusServer.handler.handleClient(clientAddress.getAddress());
 
             if (secret != null) {
+                log.debug("secret is not null");
                 inByteBuffer.flip();
                 byte[] inBytes = new byte[inByteBuffer.remaining()];
                 inByteBuffer.get(inBytes);
 
+                log.debug("Decoding request");
                 Packet requestPacket = udpRadiusServer.packetCodec.decodeRequest(inBytes, secret);
+                log.debug("Decoding request complete");
 
                 Packet responsePacket = null;
 
                 // Check the duplication cache for a cached response
+                // System.out.println("Attempting handleRequest");
+                log.debug("Starting to handle request");
                 Result result = udpRadiusServer.duplicationStrategy.handleRequest(clientAddress, requestPacket);
 
                 switch (result.getState()) {
                     case NEW_REQUEST:
                         // The response will be generated since it's a new request
+                        log.debug("New request");
                         try {
-                            responsePacket = udpRadiusServer.handler.handlePacket(clientAddress.getAddress(),
-                                    requestPacket);
+                            responsePacket = udpRadiusServer.handler.handlePacket(clientAddress.getAddress(), requestPacket);
 
                             if (responsePacket != null) {
                                 udpRadiusServer.duplicationStrategy.handleResponse(clientAddress, requestPacket,
@@ -282,20 +307,28 @@ public final class UdpRadiusServer implements RadiusServer {
                         }
                         break;
                     case IN_PROGRESS_REQUEST:
+                        log.debug("Inprogress request");
                         // Ignore the request since it's a duplicate of one that's being handled
                         break;
                     case CACHED_RESPONSE:
+                        log.debug("Cached response");
                         responsePacket = result.getResponsePacket();
                         break;
                 }
 
                 if (responsePacket != null) {
+                    log.debug("Output bytes are available, sending response.");
                     byte[] outBytes = udpRadiusServer.packetCodec.encodeResponse(responsePacket, secret,
                             requestPacket.getReceivedFields().getIdentifier(),
                             requestPacket.getReceivedFields().getAuthenticator());
 
                     datagramChannel.send(ByteBuffer.wrap(outBytes), clientAddress);
+
+                } else {
+                    log.error("response packet is null");
                 }
+            } else {
+                log.error("Secret is null!");
             }
         }
 
