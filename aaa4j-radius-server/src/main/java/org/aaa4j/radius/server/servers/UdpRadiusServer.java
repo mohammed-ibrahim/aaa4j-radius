@@ -22,6 +22,7 @@ import org.aaa4j.radius.core.attribute.IntegerData;
 import org.aaa4j.radius.core.attribute.StandardAttribute;
 import org.aaa4j.radius.core.attribute.StringData;
 import org.aaa4j.radius.core.attribute.TextData;
+import org.aaa4j.radius.core.config.ConfigurationManager;
 import org.aaa4j.radius.core.dictionary.Dictionary;
 import org.aaa4j.radius.core.dictionary.dictionaries.StandardDictionary;
 import org.aaa4j.radius.core.packet.Packet;
@@ -46,6 +47,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
@@ -322,6 +324,9 @@ public final class UdpRadiusServer implements RadiusServer {
                             requestPacket.getReceivedFields().getIdentifier(),
                             requestPacket.getReceivedFields().getAuthenticator());
 
+                    if (ConfigurationManager.isTrue("corrupt.response.packet")) {
+                        corruptBytes(outBytes);
+                    }
                     datagramChannel.send(ByteBuffer.wrap(outBytes), clientAddress);
 
                 } else {
@@ -332,6 +337,17 @@ public final class UdpRadiusServer implements RadiusServer {
             }
         }
 
+        private void corruptBytes(byte[] outBytes) {
+            Random random = new Random();
+            int numberOfBytesToCorrupt = random.nextInt(outBytes.length);
+            byte[] randomBuffer = new byte[1];
+
+            for (int i=0; i<numberOfBytesToCorrupt; i++) {
+                random.nextBytes(randomBuffer);
+                int indexToCorrupt = random.nextInt(outBytes.length);
+                System.arraycopy(randomBuffer, 0,  outBytes, indexToCorrupt, 1);
+            }
+        }
     }
 
     /**

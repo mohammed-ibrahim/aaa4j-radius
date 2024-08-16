@@ -13,9 +13,9 @@ import org.aaa4j.radius.core.packet.packets.AccessAccept;
 import org.aaa4j.radius.core.packet.packets.AccessChallenge;
 import org.aaa4j.radius.core.packet.packets.AccessReject;
 import org.aaa4j.radius.core.packet.packets.AccessRequest;
+import org.aaa4j.radius.core.config.ConfigurationManager;
 import org.aaa4j.radius.server.servers.UdpRadiusServer;
 import org.apache.commons.codec.binary.Hex;
-import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.time.StopWatch;
 import org.apache.commons.lang3.tuple.Pair;
@@ -27,6 +27,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
@@ -48,13 +49,9 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 public class RadiusBootHelper {
   private static final Logger log = LoggerFactory.getLogger(RadiusBootHelper.class);
 
-  private static int globalDelayInSec = 0;
-
   private static ScheduledExecutorService scheduledExecutorService = Executors.newScheduledThreadPool(2);
 
   private static Map<String, String> usernameAndPasswordStaticStore = null;
-
-  private static ConfigurationManager configurationManager;
 
   public static AtomicInteger numRequestsReceived = new AtomicInteger(0);
   public static AtomicInteger numOfResponded = new AtomicInteger(0);
@@ -65,8 +62,6 @@ public class RadiusBootHelper {
 
   public static void main(String[] args) throws Exception {
     log.debug("Starting Radius Server");
-
-    configurationManager = new ConfigurationManager(loadRequiredSystemProperty("radius.server.config.file"));
 
     String staticFileName = System.getProperty("load.static.seeded.list");
     if (StringUtils.isNotBlank(staticFileName)) {
@@ -90,13 +85,13 @@ public class RadiusBootHelper {
       log.debug("Static mode is disabled");
     }
 
-    Optional<Integer> propertyAsInteger = configurationManager.getPropertyAsInteger("radius.server.port");
+    Optional<Integer> propertyAsInteger = ConfigurationManager.getPropertyAsInteger("radius.server.port");
     if (!propertyAsInteger.isPresent()) {
       log.error("radius.server.port not configured");
       throw new RuntimeException("radius.server.port not configured");
     }
 
-    String localhost = configurationManager.getProperty("radius.server.localhost");
+    String localhost = ConfigurationManager.getProperty("radius.server.localhost");
     InetSocketAddress inetSocketAddress = null;
     if (StringUtils.isNotBlank(localhost) && Boolean.valueOf(localhost)) {
       inetSocketAddress = new InetSocketAddress(InetAddress.getLoopbackAddress(), propertyAsInteger.get());
@@ -106,7 +101,7 @@ public class RadiusBootHelper {
       log.info("Binding at public port: {}", inetSocketAddress.getAddress().getHostAddress());
     }
 
-    Optional<Integer> nServerThreads = configurationManager.getPropertyAsInteger("radius.server.num.threads");
+    Optional<Integer> nServerThreads = ConfigurationManager.getPropertyAsInteger("radius.server.num.threads");
     if (!nServerThreads.isPresent()) {
       throw new RuntimeException("Property radius.server.num.threads not configured");
     }
@@ -150,7 +145,7 @@ public class RadiusBootHelper {
   }
 
   private static final Optional<Integer> getPropertyFromConfigurationFileAsInteger(String key) {
-    String strValue = configurationManager.getProperty(key);
+    String strValue = ConfigurationManager.getProperty(key);
 
     if (StringUtils.isBlank(strValue)) {
       return Optional.empty();
@@ -164,7 +159,7 @@ public class RadiusBootHelper {
 
     @Override
     public byte[] handleClient(InetAddress clientAddress) {
-      String sharedSecret = configurationManager.getProperty("radius.server.sharedsecret");
+      String sharedSecret = ConfigurationManager.getProperty("radius.server.sharedsecret");
       if (StringUtils.isBlank(sharedSecret)) {
         log.error("Shared secret is blank");
         throw new RuntimeException("Shared secret is blank");
@@ -289,7 +284,7 @@ public class RadiusBootHelper {
 
 
     private Optional<String> attemptToFetchGroupForUser(String username) {
-      String prefixGroupsCsv = configurationManager.getProperty("prefix.patterns.csv");
+      String prefixGroupsCsv = ConfigurationManager.getProperty("prefix.patterns.csv");
       String [] parts = prefixGroupsCsv.split(",");
 
       for (String part : parts) {
@@ -325,16 +320,12 @@ public class RadiusBootHelper {
     private static Packet generatePacketFromResponseCode(String uuid, String username, String responseCode) {
       switch (responseCode) {
         case "a":
-          log.debug("Seeded accept response, uuid: {} username: {}", uuid, username);
-          StandardAttribute classAttribute = new StandardAttribute(25, new StringData("ClassData-12345".getBytes()));
-          StandardAttribute classAttribute1 = new StandardAttribute(25, new StringData(RandomStringUtils.randomAlphabetic(10).getBytes()));
-          StandardAttribute classAttribute2 = new StandardAttribute(25, new StringData("".getBytes()));
-          return new AccessAccept(Arrays.asList(classAttribute, classAttribute1, classAttribute2));
+          return prepareAccessAccept(uuid, username);
 
         case "c":
           log.debug("Seeded challenge response, uuid: {} username: {}", uuid, username);
           String jumpToUserCode = String.format("rad.user.%s.after.challenge.jump.user", username).toLowerCase();
-          String jumpToUserValue = configurationManager.getProperty(jumpToUserCode);
+          String jumpToUserValue = ConfigurationManager.getProperty(jumpToUserCode);
           log.debug("Got jump user value: {}", jumpToUserValue);
           if (StringUtils.isBlank(jumpToUserValue)) {
             log.debug("Jump to user value is empty!! not a good situation.");
@@ -344,7 +335,7 @@ public class RadiusBootHelper {
           StandardAttribute standardAttribute = new StandardAttribute(24, new StringData(jumpToUserValue.getBytes()));
 
           String challengeHintMessage = "Default blank hint message";
-          String challengeHintPropertyMessageFromConfiguration = configurationManager.getProperty("challenege.hint.message");
+          String challengeHintPropertyMessageFromConfiguration = ConfigurationManager.getProperty("challenege.hint.message");
           if (StringUtils.isNotBlank(challengeHintPropertyMessageFromConfiguration)) {
             log.debug("Challenge hint is: {}", challengeHintPropertyMessageFromConfiguration);
             challengeHintMessage = challengeHintPropertyMessageFromConfiguration;
@@ -356,6 +347,39 @@ public class RadiusBootHelper {
           log.error("Sending reject response to id: {} username: {}", uuid, username);
           return new AccessReject();
       }
+    }
+
+    private static AccessAccept prepareAccessAccept(String uuid, String username) {
+      log.debug("Seeded accept response, uuid: {} username: {}", uuid, username);
+      String classAttributeKeysCsv = ConfigurationManager.getProperty("class.attribute.keys.csv");
+
+      if (StringUtils.isBlank(classAttributeKeysCsv)) {
+        return new AccessAccept();
+      } else {
+        return addClassAttributesToAccessAccept(classAttributeKeysCsv);
+      }
+    }
+
+    private static AccessAccept addClassAttributesToAccessAccept(String classAttributeKeysCsv) {
+      List<String> keys = Arrays.asList(classAttributeKeysCsv.split(","));
+
+      List<Attribute<?>> classAttributes = new ArrayList<>();
+
+      keys.forEach(key -> {
+        String classAttributeValue = ConfigurationManager.getProperty(key);
+
+        if (StringUtils.isNotBlank(classAttributeValue)) {
+          StandardAttribute classAttribute = new StandardAttribute(25, new StringData(classAttributeValue.getBytes()));
+          classAttributes.add(classAttribute);
+        } else {
+          log.debug("Adding empty class attribute for key: {}", key);
+          StandardAttribute emptyClassAttribute = new StandardAttribute(25, new StringData("".getBytes()));
+          classAttributes.add(emptyClassAttribute);
+        }
+
+      });
+
+      return new AccessAccept(classAttributes);
     }
 
     private static void sleepIfNeeded(int delayInMs) {
@@ -396,7 +420,7 @@ public class RadiusBootHelper {
         }
       }
 
-      String responseType = configurationManager.getProperty(responseKey);
+      String responseType = ConfigurationManager.getProperty(responseKey);
       log.debug("User: {} not part of any group, response code: {}, delay in ms: {}", username, responseType, delayInMs);
       return Pair.of(responseType, delayInMs);
     }
@@ -425,33 +449,9 @@ public class RadiusBootHelper {
       log.debug("User: {} belongs to group: {} and sleep is: {}", username, groupNameStr, delayInMs);
 
       String responseKey = String.format("%s.resp.code", groupNameStr).toLowerCase();
-      String responseType = configurationManager.getProperty(responseKey);
+      String responseType = ConfigurationManager.getProperty(responseKey);
 
       return Pair.of(responseType, delayInMs);
     }
-
-    private void iterativeSleep(long numSecondsToSleep) {
-
-      if (numSecondsToSleep < 1) {
-        log.debug("Sleep not required");
-        return;
-      }
-
-      try {
-
-        for (int i=0; i < numSecondsToSleep; i++) {
-          Date startSleep = new Date();
-          Thread.sleep(1000);
-          Date endSleep = new Date();
-          log.debug("Sleeping: Start: {} End: {}, currentIteration: {} numSecondsToSleep: {}", startSleep, endSleep, (i+1), numSecondsToSleep);
-        }
-      } catch (Exception e) {
-        log.error("Error while sleeping ", e);
-      }
-    }
-
   }
-
-
-
 }

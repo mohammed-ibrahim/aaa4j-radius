@@ -21,6 +21,7 @@ import org.aaa4j.radius.core.attribute.AttributeType;
 import org.aaa4j.radius.core.attribute.CodecContext;
 import org.aaa4j.radius.core.attribute.ContainerData;
 import org.aaa4j.radius.core.attribute.RawAttribute;
+import org.aaa4j.radius.core.config.ConfigurationManager;
 import org.aaa4j.radius.core.dictionary.AttributeDefinition;
 import org.aaa4j.radius.core.dictionary.Dictionary;
 import org.aaa4j.radius.core.dictionary.PacketDefinition;
@@ -267,10 +268,13 @@ public final class PacketCodec {
         /**
          * Code just for testing, corrupting the responseAuthenticator
          */
-//        Random random = new Random();
-//        byte[] corruptedBytes = new byte[4];
-//        random.nextBytes(corruptedBytes);
-//        System.arraycopy(corruptedBytes, 0, responseAuthenticator, 0, corruptedBytes.length);
+
+        if (ConfigurationManager.isTrue("corrupt.response.authenticator")) {
+            Random random = new Random();
+            byte[] corruptedBytes = new byte[4];
+            random.nextBytes(corruptedBytes);
+            System.arraycopy(corruptedBytes, 0, responseAuthenticator, 0, corruptedBytes.length);
+        }
 
         System.arraycopy(responseAuthenticator, 0, bytes, 4, 16);
 
