@@ -122,6 +122,12 @@ public class RadiusBootHelper {
 
   private static void printStatus() {
     try {
+
+      int numRequests = numRequestsInLastEpoch.get();
+      if (numRequests < 1) {
+        return;
+      }
+
       log.info("Received: {} Responded: {} l100RespTime: {} rps: {}",
           numRequestsReceived.get(), numOfResponded.get(),
           lastNAverageCounter.average(), numRequestsInLastEpoch.getAndIncrement());
@@ -180,7 +186,7 @@ public class RadiusBootHelper {
 
       numOfResponded.incrementAndGet();
       lastNAverageCounter.add((int)stopWatch.getTime(TimeUnit.MILLISECONDS));
-      log.info("RESPONSE: user: {} and Response: {}", response.getLeft(), getDetailedResponseType(response.getRight()));
+      log.info("RESPONSE: from: {} user: {} and Response: {}", clientAddress.getHostAddress(), response.getLeft(), getDetailedResponseType(response.getRight()));
       return response.getRight();
     }
 

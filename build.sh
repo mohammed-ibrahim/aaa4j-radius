@@ -21,6 +21,14 @@ startServer() {
 	org.aaa4j.radius.server.RadiusBootHelper
 }
 
+buildOnly() {
+	mvn clean -Dgpg.skip=true -DskipTests=true -Dcheckstyle.skip verify &&
+	cp ./aaa4j-radius-server/target/aaa4j-radius-server-0.2.4-SNAPSHOT-jar-with-dependencies.jar ~/Desktop/CustomRadiusServer-$((RANDOM % 20000)).jar
+
+    cksum ./aaa4j-radius-server/target/aaa4j-radius-server-0.2.4-SNAPSHOT-jar-with-dependencies.jar
+    cksum ~/Desktop/CustomRadiusServer-*
+}
+
 
 buildAndStartServer() {
 	mvn clean -Dgpg.skip=true -DskipTests=true -Dcheckstyle.skip verify &&
@@ -45,11 +53,15 @@ case "${1-}" in
   2)
     sendLocalHostRequest
     ;;
+  3)
+    buildOnly
+    ;;
 
   *)
     echo $"0 Build and start server"
     echo $"1 Start server"
     echo $"2 Send localhost request"
+    echo $"3 Build and Copy to Desktop"
     exit 1
     ;;
 esac
